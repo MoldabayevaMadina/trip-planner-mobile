@@ -1,4 +1,4 @@
-# 🧭 Trip Planner (Android)
+# Trip Planner (Android)
 
 An Android app that helps you get ready for a trip: plan the places you want to visit,
 pack your bag with smart checklists, and share the plan with your travel companions.
@@ -7,9 +7,15 @@ Built with **Kotlin**, **Jetpack Compose** and **Material 3**.
 
 ## Screenshots
 
-| Trips | Places | Packing list | Undo delete |
-|---|---|---|---|
-| ![Trips](screenshots/list.png) | ![Places](screenshots/places.png) | ![Packing](screenshots/packing.png) | ![Undo](screenshots/undo.png) |
+## Screenshots
+
+| Trips list | New trip | Places |
+|---|---|---|
+| ![Trips list with search, filters and trip status](screenshots/image1.png) | ![New trip dialog with validation](screenshots/image2.png) | ![Places tab with categories and visited checkboxes](screenshots/image3.png) |
+
+| Packing list | Share | Undo delete |
+|---|---|---|
+| ![Packing list with templates](screenshots/image4.png) | ![Sharing the trip plan](screenshots/image5.png) | ![Snackbar with Undo after removing an item](screenshots/image6.png) |
 
 ## Features
 
