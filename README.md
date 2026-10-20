@@ -7,7 +7,6 @@ Built with **Kotlin**, **Jetpack Compose** and **Material 3**.
 
 ## Screenshots
 
-## Screenshots
 
 | Trips list | New trip | Places |
 |---|---|---|
