@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +45,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.tripplanner.data.PackingItem
 import com.example.tripplanner.data.PackingTemplate
 import com.example.tripplanner.data.Place
@@ -59,11 +62,45 @@ import com.example.tripplanner.ui.components.VisitedProgress
 import com.example.tripplanner.ui.components.datesText
 import kotlinx.coroutines.launch
 
+@Composable
+fun TripDetailRoute(
+    onBack: () -> Unit,
+    onEdit: (tripId: Long) -> Unit,
+    viewModel: TripDetailViewModel = viewModel(factory = TripDetailViewModel.Factory),
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val trip = state.trip
+
+    when {
+        state.isLoading -> Unit
+        trip == null -> EmptyState(message = "This trip no longer exists.", modifier = Modifier.fillMaxSize())
+        else -> TripDetailScreen(
+            trip = trip,
+            onBack = onBack,
+            onEdit = { onEdit(trip.id) },
+            onDeleteTrip = {
+                viewModel.deleteTrip()
+                onBack()
+            },
+            onAddPlace = viewModel::addPlace,
+            onTogglePlace = viewModel::togglePlaceVisited,
+            onDeletePlace = viewModel::deletePlace,
+            onRestorePlace = viewModel::restorePlace,
+            onAddPacking = viewModel::addPackingItem,
+            onTogglePacked = viewModel::togglePacked,
+            onDeletePacking = viewModel::deletePackingItem,
+            onRestorePacking = viewModel::restorePackingItem,
+            onApplyTemplate = viewModel::applyTemplate,
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripDetailScreen(
     trip: Trip,
     onBack: () -> Unit,
+    onEdit: () -> Unit,
     onDeleteTrip: () -> Unit,
     onAddPlace: (name: String, category: PlaceCategory) -> Unit,
     onTogglePlace: (placeId: Long) -> Unit,
@@ -77,12 +114,12 @@ fun TripDetailScreen(
 ) {
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+
 
     val snackbarHostState = remember { SnackbarHostState() }
-
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-
 
     fun deleteWithUndo(message: String, delete: () -> Unit, restore: () -> Unit) {
         delete()
@@ -102,10 +139,11 @@ fun TripDetailScreen(
         topBar = {
             TopAppBar(
                 title = { Text(trip.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { TextButton(onClick = onBack) { Text("← Back") } },
+                navigationIcon = { TextButton(onClick = onBack) { Text("←") } },
                 actions = {
+                    TextButton(onClick = onEdit) { Text("Edit") }
                     TextButton(onClick = { shareTrip(context, trip) }) { Text("Share") }
-                    TextButton(onClick = onDeleteTrip) { Text("Delete") }
+                    TextButton(onClick = { showDeleteDialog = true }) { Text("Delete") }
                 },
             )
         },
@@ -162,7 +200,23 @@ fun TripDetailScreen(
             }
         }
     }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete trip?") },
+            text = { Text("\"${trip.title}\" with all its places and packing list will be deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    onDeleteTrip()
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") } },
+        )
+    }
 }
+
 
 private fun LazyListScope.placesSection(
     trip: Trip,
@@ -232,9 +286,15 @@ fun TripHeader(trip: Trip, modifier: Modifier = Modifier) {
             AppLogo(size = 64.dp)
             Spacer(Modifier.width(16.dp))
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("${trip.city}, ${trip.country}", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    text = listOf(trip.city, trip.country).filter { it.isNotBlank() }.joinToString(", "),
+                    style = MaterialTheme.typography.titleLarge,
+                )
                 Text("${trip.datesText()} · ${trip.daysCount} days", style = MaterialTheme.typography.bodyMedium)
                 TripStatus(trip)
+                if (trip.notes.isNotBlank()) {
+                    Text("📝 ${trip.notes}", style = MaterialTheme.typography.bodySmall)
+                }
                 VisitedProgress(visited = trip.visitedCount, total = trip.places.size)
             }
         }
@@ -243,7 +303,6 @@ fun TripHeader(trip: Trip, modifier: Modifier = Modifier) {
 
 @Composable
 fun AddPlaceForm(onAdd: (String, PlaceCategory) -> Unit, modifier: Modifier = Modifier) {
-
     var category by rememberSaveable { mutableStateOf(PlaceCategory.SIGHT) }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -265,8 +324,9 @@ fun AddPlaceForm(onAdd: (String, PlaceCategory) -> Unit, modifier: Modifier = Mo
 
 private fun Trip.toShareText(): String = buildString {
     appendLine("🧭 $title")
-    appendLine("📍 $city, $country")
+    appendLine("📍 ${listOf(city, country).filter { it.isNotBlank() }.joinToString(", ")}")
     appendLine("📅 ${datesText()} ($daysCount days)")
+    if (notes.isNotBlank()) appendLine("📝 $notes")
     if (places.isNotEmpty()) {
         appendLine()
         appendLine("Places:")

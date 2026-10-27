@@ -34,6 +34,7 @@ data class Trip(
     val endDate: LocalDate,
     val places: List<Place> = emptyList(),
     val packing: List<PackingItem> = emptyList(),
+    val notes: String = "",
 ) {
     val daysCount: Int
         get() = ChronoUnit.DAYS.between(startDate, endDate).toInt() + 1

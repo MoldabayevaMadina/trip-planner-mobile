@@ -217,3 +217,28 @@ fun EmptyState(message: String, modifier: Modifier = Modifier) {
         Text(text = message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+
+@Composable
+fun LabeledTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    error: String? = null,
+    hint: String? = null,
+    singleLine: Boolean = true,
+    minLines: Int = 1,
+) {
+    val supporting = error ?: hint
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        isError = error != null,
+        supportingText = supporting?.let { text -> { Text(text) } },
+        singleLine = singleLine,
+        minLines = minLines,
+        modifier = modifier.fillMaxWidth(),
+    )
+}
