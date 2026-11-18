@@ -33,6 +33,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,13 +52,19 @@ import com.example.tripplanner.data.PackingItem
 import com.example.tripplanner.data.PackingTemplate
 import com.example.tripplanner.data.Place
 import com.example.tripplanner.data.PlaceCategory
+import com.example.tripplanner.data.StatusAction
 import com.example.tripplanner.data.Trip
+import com.example.tripplanner.data.TripStatus
 import com.example.tripplanner.ui.components.AddItemField
 import com.example.tripplanner.ui.components.AppLogo
 import com.example.tripplanner.ui.components.EmptyState
+import com.example.tripplanner.ui.components.HistoryRow
 import com.example.tripplanner.ui.components.PackingRow
 import com.example.tripplanner.ui.components.PlaceRow
-import com.example.tripplanner.ui.components.TripStatus
+import com.example.tripplanner.ui.components.StatusActionRow
+import com.example.tripplanner.ui.components.StatusBadge
+import com.example.tripplanner.ui.components.StatusStepper
+import com.example.tripplanner.ui.components.TripCountdown
 import com.example.tripplanner.ui.components.VisitedProgress
 import com.example.tripplanner.ui.components.datesText
 import kotlinx.coroutines.launch
@@ -70,18 +77,28 @@ fun TripDetailRoute(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val trip = state.trip
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(state.isLoading, trip == null) {
+        if (!state.isLoading && trip == null) onBack()
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.messages.collect { message ->
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(message)
+        }
+    }
 
     when {
-        state.isLoading -> Unit
-        trip == null -> EmptyState(message = "This trip no longer exists.", modifier = Modifier.fillMaxSize())
+        state.isLoading || trip == null -> Unit
         else -> TripDetailScreen(
             trip = trip,
+            statusActions = state.statusActions,
+            snackbarHostState = snackbarHostState,
             onBack = onBack,
             onEdit = { onEdit(trip.id) },
-            onDeleteTrip = {
-                viewModel.deleteTrip()
-                onBack()
-            },
+            onDeleteTrip = viewModel::deleteTrip,
             onAddPlace = viewModel::addPlace,
             onTogglePlace = viewModel::togglePlaceVisited,
             onDeletePlace = viewModel::deletePlace,
@@ -91,6 +108,7 @@ fun TripDetailRoute(
             onDeletePacking = viewModel::deletePackingItem,
             onRestorePacking = viewModel::restorePackingItem,
             onApplyTemplate = viewModel::applyTemplate,
+            onChangeStatus = viewModel::changeStatus,
         )
     }
 }
@@ -99,25 +117,25 @@ fun TripDetailRoute(
 @Composable
 fun TripDetailScreen(
     trip: Trip,
+    statusActions: List<StatusAction>,
+    snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
     onEdit: () -> Unit,
     onDeleteTrip: () -> Unit,
     onAddPlace: (name: String, category: PlaceCategory) -> Unit,
     onTogglePlace: (placeId: Long) -> Unit,
     onDeletePlace: (placeId: Long) -> Unit,
-    onRestorePlace: (place: Place, index: Int) -> Unit,
+    onRestorePlace: (place: Place) -> Unit,
     onAddPacking: (name: String) -> Unit,
     onTogglePacked: (itemId: Long) -> Unit,
     onDeletePacking: (itemId: Long) -> Unit,
-    onRestorePacking: (item: PackingItem, index: Int) -> Unit,
+    onRestorePacking: (item: PackingItem) -> Unit,
     onApplyTemplate: (PackingTemplate) -> Unit,
+    onChangeStatus: (TripStatus) -> Unit,
 ) {
-
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
 
-
-    val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
@@ -166,36 +184,43 @@ fun TripDetailScreen(
                         onClick = { selectedTab = 1 },
                         text = { Text("Packing (${trip.packedCount}/${trip.packing.size})") },
                     )
+                    Tab(
+                        selected = selectedTab == 2,
+                        onClick = { selectedTab = 2 },
+                        text = { Text("Status") },
+                    )
                 }
             }
-            if (selectedTab == 0) {
-                placesSection(
+            when (selectedTab) {
+                0 -> placesSection(
                     trip = trip,
                     onAddPlace = onAddPlace,
                     onTogglePlace = onTogglePlace,
                     onDeletePlace = { place ->
-                        val index = trip.places.indexOf(place)
                         deleteWithUndo(
                             message = "\"${place.name}\" deleted",
                             delete = { onDeletePlace(place.id) },
-                            restore = { onRestorePlace(place, index) },
+                            restore = { onRestorePlace(place) },
                         )
                     },
                 )
-            } else {
-                packingSection(
+                1 -> packingSection(
                     trip = trip,
                     onAddPacking = onAddPacking,
                     onTogglePacked = onTogglePacked,
                     onDeletePacking = { item ->
-                        val index = trip.packing.indexOf(item)
                         deleteWithUndo(
                             message = "\"${item.name}\" removed",
                             delete = { onDeletePacking(item.id) },
-                            restore = { onRestorePacking(item, index) },
+                            restore = { onRestorePacking(item) },
                         )
                     },
                     onApplyTemplate = onApplyTemplate,
+                )
+                else -> statusSection(
+                    trip = trip,
+                    actions = statusActions,
+                    onChangeStatus = onChangeStatus,
                 )
             }
         }
@@ -205,7 +230,7 @@ fun TripDetailScreen(
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Delete trip?") },
-            text = { Text("\"${trip.title}\" with all its places and packing list will be deleted.") },
+            text = { Text("\"${trip.title}\" with all its places, packing list and history will be deleted.") },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteDialog = false
@@ -216,7 +241,6 @@ fun TripDetailScreen(
         )
     }
 }
-
 
 private fun LazyListScope.placesSection(
     trip: Trip,
@@ -279,6 +303,28 @@ private fun LazyListScope.packingSection(
     }
 }
 
+private fun LazyListScope.statusSection(
+    trip: Trip,
+    actions: List<StatusAction>,
+    onChangeStatus: (TripStatus) -> Unit,
+) {
+    item { StatusStepper(trip.status) }
+    item { Text("Next step", style = MaterialTheme.typography.titleMedium) }
+    if (actions.isEmpty()) {
+        item { EmptyState(message = "The trip is completed. No more steps 🎉") }
+    }
+    items(actions, key = { "action-${it.target.name}" }) { action ->
+        StatusActionRow(action = action, onClick = { onChangeStatus(action.target) })
+    }
+    item { Text("History", style = MaterialTheme.typography.titleMedium) }
+    if (trip.history.isEmpty()) {
+        item { Text("No changes yet", style = MaterialTheme.typography.bodySmall) }
+    }
+    items(trip.history, key = { "history-${it.id}" }) { change ->
+        HistoryRow(change)
+    }
+}
+
 @Composable
 fun TripHeader(trip: Trip, modifier: Modifier = Modifier) {
     Card(modifier = modifier.fillMaxWidth()) {
@@ -291,7 +337,8 @@ fun TripHeader(trip: Trip, modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Text("${trip.datesText()} · ${trip.daysCount} days", style = MaterialTheme.typography.bodyMedium)
-                TripStatus(trip)
+                StatusBadge(trip.status)
+                TripCountdown(trip)
                 if (trip.notes.isNotBlank()) {
                     Text("📝 ${trip.notes}", style = MaterialTheme.typography.bodySmall)
                 }
@@ -326,6 +373,7 @@ private fun Trip.toShareText(): String = buildString {
     appendLine("🧭 $title")
     appendLine("📍 ${listOf(city, country).filter { it.isNotBlank() }.joinToString(", ")}")
     appendLine("📅 ${datesText()} ($daysCount days)")
+    appendLine("${status.emoji} ${status.label}")
     if (notes.isNotBlank()) appendLine("📝 $notes")
     if (places.isNotEmpty()) {
         appendLine()

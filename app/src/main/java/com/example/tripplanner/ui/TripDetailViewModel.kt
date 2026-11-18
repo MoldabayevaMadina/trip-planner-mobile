@@ -12,16 +12,23 @@ import com.example.tripplanner.data.PackingItem
 import com.example.tripplanner.data.PackingTemplate
 import com.example.tripplanner.data.Place
 import com.example.tripplanner.data.PlaceCategory
+import com.example.tripplanner.data.StatusAction
 import com.example.tripplanner.data.Trip
 import com.example.tripplanner.data.TripRepository
+import com.example.tripplanner.data.TripStatus
+import com.example.tripplanner.data.TripWorkflow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class TripDetailUiState(
     val trip: Trip? = null,
+    val statusActions: List<StatusAction> = emptyList(),
     val isLoading: Boolean = false,
 )
 
@@ -30,83 +37,78 @@ class TripDetailViewModel(
     private val repository: TripRepository,
 ) : ViewModel() {
 
-
     private val tripId: Long = checkNotNull(savedStateHandle.get<Long>("tripId"))
 
+    /** One-time messages for a snackbar ("Status: Ready", "Added 4 items"...). */
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    val messages: Flow<String> = _messages.receiveAsFlow()
+
     val uiState: StateFlow<TripDetailUiState> = repository.observeTrip(tripId)
-        .map { trip -> TripDetailUiState(trip = trip) }
+        .map { trip ->
+            TripDetailUiState(
+                trip = trip,
+                statusActions = trip?.let { TripWorkflow.actions(it) } ?: emptyList(),
+            )
+        }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = TripDetailUiState(isLoading = true),
         )
 
+    // ---------- places ----------
 
-    fun addPlace(name: String, category: PlaceCategory) {
-        val place = Place(id = repository.newId(), name = name.trim(), category = category)
-        update { trip -> trip.copy(places = trip.places + place) }
+    fun addPlace(name: String, category: PlaceCategory) = launch {
+        repository.addPlace(tripId, name, category)
     }
 
-    fun togglePlaceVisited(placeId: Long) {
-        update { trip ->
-            trip.copy(places = trip.places.map { if (it.id == placeId) it.copy(visited = !it.visited) else it })
-        }
-    }
+    fun togglePlaceVisited(placeId: Long) = launch { repository.togglePlaceVisited(placeId) }
 
-    fun deletePlace(placeId: Long) {
-        update { trip -> trip.copy(places = trip.places.filterNot { it.id == placeId }) }
-    }
+    fun deletePlace(placeId: Long) = launch { repository.deletePlace(placeId) }
 
-    fun restorePlace(place: Place, index: Int) {
-        update { trip ->
-            val places = trip.places.toMutableList()
-            places.add(index.coerceIn(0, places.size), place)
-            trip.copy(places = places)
-        }
-    }
+    fun restorePlace(place: Place) = launch { repository.restorePlace(tripId, place) }
 
+    // ---------- packing list ----------
 
-    fun addPackingItem(name: String) {
-        val item = PackingItem(id = repository.newId(), name = name.trim())
-        update { trip -> trip.copy(packing = trip.packing + item) }
-    }
+    fun addPackingItem(name: String) = launch { repository.addPackingItems(tripId, listOf(name)) }
 
-    fun togglePacked(itemId: Long) {
-        update { trip ->
-            trip.copy(packing = trip.packing.map { if (it.id == itemId) it.copy(packed = !it.packed) else it })
-        }
-    }
+    fun togglePacked(itemId: Long) = launch { repository.togglePacked(itemId) }
 
-    fun deletePackingItem(itemId: Long) {
-        update { trip -> trip.copy(packing = trip.packing.filterNot { it.id == itemId }) }
-    }
+    fun deletePackingItem(itemId: Long) = launch { repository.deletePackingItem(itemId) }
 
-    fun restorePackingItem(item: PackingItem, index: Int) {
-        update { trip ->
-            val packing = trip.packing.toMutableList()
-            packing.add(index.coerceIn(0, packing.size), item)
-            trip.copy(packing = packing)
-        }
-    }
+    fun restorePackingItem(item: PackingItem) = launch { repository.restorePackingItem(tripId, item) }
 
-
+    /** Adds the template's items, skipping ones already in the list (case-insensitive). */
     fun applyTemplate(template: PackingTemplate) {
         val trip = uiState.value.trip ?: return
         val existing = trip.packing.map { it.name.lowercase() }.toSet()
-        val newItems = template.items
-            .filter { it.lowercase() !in existing }
-            .map { PackingItem(id = repository.newId(), name = it) }
-        update { it.copy(packing = it.packing + newItems) }
+        val newNames = template.items.filter { it.lowercase() !in existing }
+        launch {
+            repository.addPackingItems(tripId, newNames)
+            _messages.send(
+                if (newNames.isEmpty()) "All \"${template.label}\" items are already in the list"
+                else "Added ${newNames.size} item${if (newNames.size == 1) "" else "s"} from \"${template.label}\""
+            )
+        }
     }
 
+    // ---------- status workflow ----------
 
-
-    fun deleteTrip() {
-        viewModelScope.launch { repository.deleteTrip(tripId) }
+    fun changeStatus(target: TripStatus) = launch {
+        val changed = repository.changeStatus(tripId, target)
+        _messages.send(
+            if (changed) "Status changed to ${target.emoji} ${target.label}"
+            else "Can't change the status right now"
+        )
     }
 
-    private fun update(change: (Trip) -> Trip) {
-        viewModelScope.launch { repository.updateTrip(tripId, change) }
+    // ---------- trip ----------
+
+    fun deleteTrip() = launch { repository.deleteTrip(tripId) }
+
+    /** Every database call runs in a coroutine, off the main thread. */
+    private fun launch(block: suspend () -> Unit) {
+        viewModelScope.launch { block() }
     }
 
     companion object {

@@ -31,6 +31,7 @@ object SampleData {
         Trip(
             id = 3, title = "Tbilisi trip", city = "Tbilisi", country = "Georgia",
             startDate = LocalDate.of(2026, 9, 10), endDate = LocalDate.of(2026, 9, 15),
+            status = TripStatus.COMPLETED,
             places = listOf(
                 Place(7, "Old Town walk", PlaceCategory.WALK, visited = true),
                 Place(8, "Narikala Fortress", PlaceCategory.SIGHT, visited = true),

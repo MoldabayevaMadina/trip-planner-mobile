@@ -41,12 +41,14 @@ import com.example.tripplanner.data.Place
 import com.example.tripplanner.data.Trip
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.example.tripplanner.data.TripStatus
 
 private val shortDate = DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH)
 private val fullDate = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
 
 
 fun Trip.datesText(): String = "${startDate.format(shortDate)} – ${endDate.format(fullDate)}"
+
 
 @Composable
 fun TripCard(trip: Trip, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -63,14 +65,19 @@ fun TripCard(trip: Trip, onClick: () -> Unit, modifier: Modifier = Modifier) {
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    TripStatus(trip)
+                    Spacer(Modifier.width(8.dp))
+                    StatusBadge(trip.status)
                 }
                 Text(
-                    text = "${trip.city}, ${trip.country}",
+                    text = listOf(trip.city, trip.country).filter { it.isNotBlank() }.joinToString(", "),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(text = "${trip.datesText()} · ${trip.daysCount} days", style = MaterialTheme.typography.bodySmall)
+                // the countdown makes no sense for a finished or cancelled trip
+                if (trip.status != TripStatus.COMPLETED && trip.status != TripStatus.CANCELLED) {
+                    TripCountdown(trip)
+                }
                 Spacer(Modifier.height(8.dp))
                 VisitedProgress(visited = trip.visitedCount, total = trip.places.size)
             }
@@ -79,7 +86,7 @@ fun TripCard(trip: Trip, onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun TripStatus(trip: Trip, modifier: Modifier = Modifier) {
+fun TripCountdown(trip: Trip, modifier: Modifier = Modifier) {
     Text(
         text = trip.statusText(),
         style = MaterialTheme.typography.labelMedium,
